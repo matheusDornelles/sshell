@@ -3,419 +3,276 @@ mbarbosa25@ubishops.ca
 2362581
 
 ================================================================================
-                            RSSHELL - ASSIGNMENT 2
+                            RSSHELL - Assignment 2
                          Remote Shell TCP/IP Client
 ================================================================================
 
-OVERVIEW
+WHAT IS THIS?
 
-The Remote Shell (rsshell) extends the Unix shell from Assignment 1 with
-TCP/IP-based remote command execution capabilities. Commands can be sent to
-a remote server over the network, with support for both synchronous foreground
-execution and asynchronous background execution.
+rsshell is a Unix shell that talks to remote servers over the network. It's
+like your regular shell, but you can send commands to remote servers (SMTP,
+HTTP, or any TCP service) and see their responses.
 
-The base shell framework and supporting utilities were provided by 
-Dr. Stefan D. Bruda in Assignment 1. This solution adds complete TCP/IP
-networking capabilities to transform it into a remote shell client.
+Built on the Assignment 1 framework by Dr. Stefan D. Bruda, with full
+networking added for Assignment 2.
 
 ================================================================================
-IMPLEMENTATION DETAILS
+HOW IT WORKS
 ================================================================================
 
-SOCKET MANAGEMENT:
-- TCP/IP connections using AF_INET sockets
-- Non-blocking I/O with configurable timeouts
-- Persistent connection mode (keepalive) for reduced network overhead
-- Automatic connection cleanup and state tracking (remote_socket = -1 for closed)
+CONNECTIONS:
+- Opens TCP connections to whatever server you configure
+- Talks to the server and shows you what it says back
+- Can keep connections open (keepalive mode) or close after each command
+- Won't hang if the server takes too long to respond
 
-ASYNCHRONOUS EXECUTION:
-- Commands with '&' prefix fork child processes for background execution
-- Parent shell returns prompt immediately without waiting for response
-- Child processes independently read responses from remote server
-- Multiple children may read concurrently, causing interleaving
+BACKGROUND COMMANDS:
+- Put '&' before a command to run it in the background
+- Your prompt comes back immediately while the response loads
+- Multiple background commands can run at once
+- Their responses might get mixed together - that's normal!
 
-PROTOCOL SUPPORT:
-- Protocol-agnostic response handling supporting both \r\n and \n line terminators
-- Proper detection of server-initiated connection closure
-- Timeout-based response reading prevents hanging on unresponsive servers
+COMPATIBILITY:
+- Works with servers using \n or \r\n line endings
+- Detects when servers close the connection
+- Doesn't freeze on slow or unresponsive servers
 
-CONFIGURATION:
-- Runtime parameters via shconfig file:
-  * RHOST - remote server hostname
-  * RPORT - remote server port number
-  * VSIZE - terminal vertical size
-  * HSIZE - terminal horizontal size
+SETTINGS (in shconfig file):
+  RHOST - which server to connect to
+  RPORT - which port to use  
+  VSIZE - terminal height
+  HSIZE - terminal width
 
 ================================================================================
-BUILDING THE PROJECT
+HOW TO BUILD
 ================================================================================
 
-Requirements:
-- Unix/Linux environment (g++ compiler, POSIX APIs)
-- GNU make utility
+You'll need a Unix/Linux system with g++ and make installed.
 
-Build instructions:
-  $ cd /path/to/sshell
   $ make clean && make
 
-This produces the 'rsshell' executable in the project directory.
+That's it! You'll get an 'rsshell' executable.
 
 ================================================================================
-RUNNING RSSHELL
+TESTING
 ================================================================================
 
-Launch the shell:
+QUICK AUTOMATED TEST:
+
+  $ ./test.sh
+
+This runs through all 10 assignment requirements automatically. Note that
+server responses might not show up in automated tests because of how
+stdin works with pipes - that's fine, the commands are still being sent.
+
+INTERACTIVE TESTING (recommended for seeing actual responses):
+
+  $ ./rsshell
+  sshell> ! keepalive
+  sshell> HELO test.com
+  (wait to see server response)
+  sshell> MAIL FROM:<test@test.com>
+  (wait for response)
+  sshell> ! close
+  sshell> ! exit
+
+================================================================================
+HOW TO USE IT
+================================================================================
+
+Start it up:
   $ ./rsshell
 
-LOCAL COMMANDS (prefixed with '!')
-  ! <command>          - Execute local command
-  ! exit               - Terminate shell and close remote connection
-  ! more <file>        - Display file with paging (space for next page)
-  ! keepalive          - Enable persistent remote connection mode
-  ! close              - Close persistent remote connection
-  ! & <command>        - Execute local command in background
+LOCAL COMMANDS (start with !)
+  ! ls                 Run commands on your computer
+  ! more file.txt      View files with paging
+  ! keepalive          Keep the connection open
+  ! close              Close the connection
+  ! exit               Quit the shell
+  ! & command          Run something in the background
 
-REMOTE COMMANDS (no prefix or with & prefix)
-  <command>            - Send command to remote server (foreground)
-                         Shell waits for complete response before returning prompt
+REMOTE COMMANDS (no ! prefix)
+  HELO example.com     Send to server, wait for response
+  & QUIT               Send to server, don't wait (returns prompt immediately)
+
+The '&' makes commands asynchronous - you get your prompt back right away
+while the response comes in the background. Note: the '&' itself isn't sent
+to the server, it's just for controlling how rsshell handles the command.
+
+CONFIGURATION (edit shconfig)
+  RHOST localhost      Which server to connect to
+  RPORT 8001           Which port
+  VSIZE 30             Your terminal height  
+  HSIZE 80             Your terminal width
+
+================================================================================
+HOW CONNECTIONS WORK
+================================================================================
+
+NORMAL MODE (default):
+  Opens a new connection for each command, closes it after getting the response.
+  Good for occasional commands.
+
+KEEPALIVE MODE (type "! keepalive"):
+  Opens one connection and keeps it open for all your commands.
+  Much faster if you're sending lots of commands.
+  Closes when you type "! close" or when you exit.
+  Also closes if the server hangs up on you.
+
+WAITING vs NOT WAITING:
+
+Without &:
+  You type a command → shell waits → shows response → gives you the prompt
   
-  & <command>          - Send command to remote server (background/asynchronous)
-                         Shell returns prompt immediately
-                         Response printed as data arrives from server
-                         Note: '&' is NOT sent to server
-
-CONFIGURATION
-Edit shconfig file to set:
-  VSIZE 30             - Terminal height in lines
-  HSIZE 80             - Terminal width in characters
-  RHOST localhost      - Remote server hostname/IP
-  RPORT 8001           - Remote server port number
+With &:
+  You type a command → prompt comes back immediately → response shows up when ready
+  
+Multiple & commands can run at the same time, which means their responses
+might get jumbled together. That's not a bug, it's just how concurrent
+processes work!
 
 ================================================================================
-PROGRAM BEHAVIOR
+WHY DO ASYNC RESPONSES GET JUMBLED?
 ================================================================================
 
-CONNECTION MODES:
+Assignment question: "Do asynchronous command responses come back interleaved?
+Why or why not?"
 
-Non-keepalive (default):
-  - New TCP connection established for each remote command
-  - Connection closed after receiving complete response
-  - Suitable for one-shot commands or unreliable servers
-  - Less network overhead if commands are infrequent
+Short answer: YES, they absolutely can get interleaved!
 
-Keepalive (! keepalive):
-  - Persistent TCP connection established and maintained
-  - All commands sent on same socket until "! close" issued
-  - Reduced network latency for rapid successive commands
-  - Improved performance when server supports connection reuse
-  - Connection remains open until:
-    * User issues "! close" command
-    * Server initiates connection closure
-    * Shell exits
+Here's why:
 
-RESPONSE HANDLING:
+WHEN YOU USE &:
+Each & command creates a separate process (using fork()). So three & commands
+= three separate processes all running at the same time.
 
-Foreground (no & prefix):
-  - Client waits for complete response from server
-  - Data received with timeout to prevent indefinite blocking
-  - Once complete response received, prompt returns to user
-  - Typical usage: commands expecting small outputs (ls, echo, etc.)
+THEY ALL WANT TO READ:
+Each process tries to read the server's response. The operating system decides
+which process gets to run when - it's not predictable. Whichever process
+happens to run first grabs the next chunk of data.
 
-Asynchronous (& prefix):
-  - Client creates child process via fork()
-  - Child process independently receives and displays response
-  - Parent process returns prompt immediately
-  - Multiple children may run concurrently
-  - Responses may appear interleaved (see ASYNCHRONOUS BEHAVIOR section)
+IN KEEPALIVE MODE IT'S WORSE:
+Without keepalive: Each command has its own connection, so less interference
+With keepalive: All commands share ONE connection, so they're all fighting
+                over the same data stream
 
-================================================================================
-ASYNCHRONOUS COMMAND BEHAVIOR AND INTERLEAVING
-================================================================================
+THE OS DECIDES:
+The kernel's scheduler picks which process runs when. It depends on system
+load, timing, random chance. There's no coordination between the processes -
+they just grab whatever data they can, whenever they get a chance to run.
 
-ASSIGNMENT QUESTION:
-"Test explicitly what happens if you issue 'asynchronous' remote commands...
-Do the answers come back interleaved with each other? Why (not)? Explain the
-behaviour in the documentation"
+EXAMPLE:
 
-ANSWER: YES - Responses WILL be interleaved when multiple asynchronous commands
-are issued in rapid succession.
+You type fast:
+  & This is command one
+  & This is command two
+  & This is command three
 
-WHY INTERLEAVING OCCURS:
+You might see:
+  This is command one
+  This is command two  
+  This is command three
 
-1. PROCESS CREATION:
-   Each "& command" invokes read_remote_response_async() which calls fork()
-   creating an independent child process. Three commands = three children.
-
-2. CONCURRENT EXECUTION:
-   All child processes run concurrently (time-multiplexed by kernel).
-   Kernel scheduler decides which child executes at any given moment.
-   This scheduling is NOT deterministic - depends on load, timing, etc.
-
-3. NON-BLOCKING I/O:
-   Each child calls recv_nonblock() to read response from server socket.
-   recv_nonblock() returns immediately with available data (or nothing).
-   Children do NOT block each other - all can attempt reads simultaneously.
-
-4. SHARED SOCKET BUFFER:
-   In non-keepalive mode: Each child opens own connection (separate buffers)
-   In keepalive mode: All children read from SAME socket
-   Kernel buffers data from server; children read in unpredictable order
-   Whichever child's recv() executes first gets next available bytes
-
-5. KERNEL BUFFERING:
-   Socket receive buffer contains data from server
-   Multiple children competing to read from same buffer
-   Each read() call gets next contiguous bytes
-   Order depends on which child's read() executes when
-
-EXAMPLE SCENARIO:
-
-User issues rapidly:
-  & This is command number one
-  & This is command number two
-  & This is command number three
-
-Expected OUTPUT (one possibility due to interleaving):
-  [parent returns prompt immediately after each &]
-  This is command number
-  This is command number
-  one
+Or you might see:
+  This is command
+  This is command one
   two
-  This is command number three
+  This is command three
 
-OR (another possibility):
-  This is command number one
-  This is command number two
-  This is command number three
-
-OR (heavily interleaved):
+Or even:
   This is c
-  ommand n
+  ommand o
   This is
-  umber o
-  command numb
-  etc.
+  ne
+  command two
+  This is command three
 
-All are VALID because:
-- No guaranteed order when multiple processes read concurrently
-- Each child gets "next available" bytes from kernel buffer
-- Kernel scheduler determines execution order
-- Timing is non-deterministic
+All of these are correct! There's no synchronization between the processes,
+so they just grab data whenever they get scheduled to run.
 
-CODE EVIDENCE:
+IS THIS A BUG?
 
-From sshell.cc read_remote_response_async():
-  int read_remote_response_async(int sd) {
-    int bgp = fork();
-    if (bgp == 0) {
-      // Child process - independent execution
-      // Multiple children created = concurrent readers
-      // No synchronization = unpredictable order
-    }
-  }
+Nope! This is exactly how async commands should work. If you want responses
+in order, don't use &. If you use &, you're saying "I don't want to wait,
+just show me stuff as it comes in" - and that means you might get jumbled
+output when multiple commands run at once.
 
-Key observations:
-- fork() creates completely independent child process
-- recv_nonblock() is non-blocking for each child
-- No mutexes, semaphores, or barriers between children
-- Children share socket descriptor but have no coordination
+To fix it, you'd need mutexes or message queues to coordinate between
+processes. But then they wouldn't be asynchronous anymore!
 
-KEEPALIVE MODE EFFECT:
-
-WITHOUT keepalive (each command gets own connection):
-  Child 1 reads from socket #1
-  Child 2 reads from socket #2
-  Child 3 reads from socket #3
-  Slightly less interleaving (separate buffers reduce contention)
-
-WITH keepalive (all commands share one connection):
-  Child 1 reads from socket #1
-  Child 2 reads from socket #1 (same!)
-  Child 3 reads from socket #1 (same!)
-  ALL responses in one buffer = MORE pronounced interleaving
-
-WHY THIS IS CORRECT BEHAVIOR:
-
-Asynchronous execution means "don't wait for response" - inherently allows
-concurrent operation. Without synchronization mechanisms (mutexes, message queues,
-barriers), concurrent access to shared resources (socket buffer) naturally results
-in unpredictable ordering.
-
-This is NOT a bug - it is the expected and correct behavior of concurrent
-unsynchronized processes. If deterministic ordering were required, the
-implementation would need to add:
-  - Mutexes around socket reads
-  - Message queue between children and parent
-  - Child process synchronization barriers
-
-But the assignment requires asynchronous behavior (no waiting), so interleaving
-is the correct and natural outcome.
-
-TESTING ASYNCHRONOUS BEHAVIOR:
-
-To observe interleaving:
-1. Configure rsshell to connect to a reliable echo server
-2. Issue multiple & commands in rapid succession
-3. Observe that responses may appear out of order or interleaved
-4. Repeat test - behavior may differ (non-deterministic)
-5. Try with "! keepalive" first - interleaving typically more pronounced
-6. Observe that prompt returns immediately (async working correctly)
-
-Verification (February 7, 2026 SMTP testing):
-✓ SMTP server at linux.ubishops.ca:25 accessible
-✓ Foreground commands: EHLO, MAIL FROM, RCPT TO transmitted successfully
-✓ Keepalive mode: Persistent connection maintained across commands
-✓ Async commands: Multiple & commands execute with proper background processing
-✓ Prompt behavior: Prompts return immediately without waiting
-
-This confirms all 10 assignment requirements are implemented and functioning
-correctly, including the critical asynchronous behavior documented here.
+TESTED AND WORKING:
+All this was tested with the SMTP server at linux.ubishops.ca:25.
+Everything works as expected - keepalive mode, async commands, proper
+response handling, all 10 assignment requirements verified.
 
 ================================================================================
-FILE MANIFEST
+WHAT'S IN HERE
 ================================================================================
 
-SUBMISSION CONTENTS (8 files):
+SOURCE FILES:
+  sshell.cc         - Main program (Assignment 2 work goes here)
+  tcp-utils.h/cc    - Network utilities (by Dr. Bruda)
+  tokenize.h/cc     - String parsing (by Dr. Bruda)
 
-Source Code:
-  sshell.cc         - Main remote shell implementation (565 lines)
-                      Contains all Assignment 2 functionality:
-                      - Local/remote command routing
-                      - TCP/IP socket management
-                      - Keepalive mode implementation
-                      - Asynchronous response handling via fork()
-                      - Configuration file parsing
-                      Credit: Base framework by Dr. Stefan D. Bruda
+BUILD:
+  Makefile          - Compiles everything into 'rsshell'
 
-  tcp-utils.h       - TCP socket utility declarations
-  tcp-utils.cc      - TCP socket utility implementations
-                      (recv_nonblock, open_connection, close_connection, etc.)
-                      Author: Dr. Stefan D. Bruda
+CONFIG & TESTING:
+  shconfig          - Server settings (RHOST, RPORT, etc.)
+  testmore          - Sample file for testing
+  test.sh           - Automated test script
 
-  tokenize.h        - String tokenization declarations
-  tokenize.cc       - String tokenization implementations
-                      Author: Dr. Stefan D. Bruda
-
-Build Configuration:
-  Makefile          - Build configuration
-                      Default target: rsshell executable
-                      Includes: clean target, debug flag option
-                      Compiler: g++ with -g -Wall -pedantic flags
-
-Configuration & Testing:
-  shconfig          - Runtime configuration file
-                      Parameters: VSIZE, HSIZE, RHOST, RPORT
-
-  testmore          - Sample file for testing 'more' command
-
-Documentation:
-  README            - This file (comprehensive documentation)
-                      Contains: usage guide, implementation details,
-                      asynchronous behavior explanation, all requirements
+DOCS:
+  README            - You're reading it!
 
 ================================================================================
-ATTRIBUTION AND CREDITS
+CREDITS
 ================================================================================
 
-This implementation extends the Assignment 1 Unix shell framework provided by
-Dr. Stefan D. Bruda. The following are used as-is from Assignment 1:
+Base framework from Dr. Stefan D. Bruda (Assignment 1):
+  - tcp-utils and tokenize libraries
+  - Shell structure, signal handling
+  - Configuration file parsing
 
-  - tcp-utils.h/cc (TCP socket utilities)
-  - tokenize.h/cc (String parsing utilities)
-  - Base shell structure (command parsing, local command execution)
-  - Signal handling framework (SIGCHLD, zombie reaper)
-  - Configuration file parsing system
+Assignment 2 additions:
+  - All the networking stuff (connecting to servers, sending commands)
+  - Keepalive mode
+  - Background command execution (&)
+  - Making it all work together!
 
-Assignment 2 additions by student:
-  - TCP/IP remote command routing
-  - Persistent connection (keepalive) mode
-  - Asynchronous response handling
-  - Non-blocking socket I/O
-  - Protocol-agnostic response processing
-  - Complete documentation and testing
-
-Testing Summary:
-  - Project successfully tested against SMTP server (linux.ubishops.ca:25)
-  - All features verified working
-  - Compiled without warnings or errors
-  - Ready for submission
+Tested against linux.ubishops.ca:25 (SMTP server) - everything works!
 
 ================================================================================
-TESTING AND VERIFICATION
+REQUIREMENTS CHECKLIST
 ================================================================================
 
-All 10 Assignment 2 requirements have been implemented and verified:
+All 10 assignment requirements implemented and tested:
 
-1. ✓ Local commands with '!' prefix
-   Location: sshell.cc main() - command prefix parsing
-   Tested: "! echo", "! more", "! keepalive", "! close", "! exit"
+✓ 1.  Local commands with '!' prefix
+✓ 2.  Remote commands sent to configured server
+✓ 3.  Responses displayed correctly
+✓ 4.  Asynchronous execution with '&'
+✓ 5.  Handles both \r\n and \n line endings
+✓ 6.  Keepalive mode works
+✓ 7.  Close command works
+✓ 8.  Detects when server closes connection
+✓ 9.  Makefile builds rsshell
+✓ 10. Full documentation and testing
 
-2. ✓ Remote commands without prefix routed to RHOST:RPORT
-   Location: sshell.cc main() - default command routing
-   Tested: SMTP commands sent to linux.ubishops.ca:25
-
-3. ✓ Response display and paging
-   Location: sshell.cc read_remote_response_sync()
-   Tested: Responses received and displayed from SMTP server
-
-4. ✓ Asynchronous commands with '&' prefix
-   Location: sshell.cc read_remote_response_async() with fork()
-   Tested: Multiple & commands return prompt immediately
-
-5. ✓ Line terminator support (\r\n and \n)
-   Location: sshell.cc find_line_end()
-   Tested: SMTP protocol using \r\n handled correctly
-
-6. ✓ Keepalive command for persistent connections
-   Location: sshell.cc keepalive_mode flag and persistent socket
-   Tested: Multiple commands executed on single connection
-
-7. ✓ Close command for connection termination
-   Location: sshell.cc close_remote_connection()
-   Tested: "! close" properly closes persistent connection
-
-8. ✓ Server-initiated connection closure detection
-   Location: sshell.cc recv() return value handling (0 = closed)
-   Tested: SMTP QUIT response triggers connection closure
-
-9. ✓ rsshell executable target in Makefile
-   Location: Makefile default target
-   Tested: make clean && make produces rsshell executable
-
-10. ✓ Comprehensive testing and documentation
-    Location: This README file
-    Tested: All features verified through live SMTP server testing
-
-Build verification:
-  Command: make clean && make
-  Result: ✓ Compiles without errors or warnings
-
-Functional testing (February 7, 2026):
-  ✓ Network connectivity: SMTP port 25 accessible
-  ✓ Foreground commands: SMTP protocol commands working
-  ✓ Keepalive mode: Persistent connection established
-  ✓ Async commands: Multiple commands execute independently
-  ✓ Response handling: SMTP responses processed correctly
-
-Code quality:
-  ✓ No memory leaks (all new/delete paired)
-  ✓ Proper signal handling (SIGCHLD, zombie reaper)
-  ✓ Error checking on all network operations
-  ✓ Resource cleanup on exit and connection closure
-  ✓ Handles server-initiated closure gracefully
+Compiles clean (no errors or warnings).
+Tested with real SMTP server - all features work.
 
 ================================================================================
-KNOWN LIMITATIONS
+KNOWN QUIRKS
 ================================================================================
 
-The following limitations exist (inherited from Assignment 1 framework):
+A few minor things (inherited from the Assignment 1 base):
 
-1. Long lines in files displayed by 'more' may truncate
-2. Commands longer than 128 characters are truncated  
-3. File paging requires blank line + enter (not just enter)
-4. Maximum hostname length constrained by buffer size
+- Really long lines in 'more' might get cut off
+- Commands over 128 characters get truncated
+- Paging files needs blank line + enter (not just enter)
 
-These do not affect Assignment 2 functionality.
+Nothing that affects the networking functionality.
 
 ================================================================================
 
