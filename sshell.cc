@@ -152,13 +152,20 @@ int read_remote_response_sync(int sd) {
     const size_t bufsize = 1024;
     char* buf = new char[bufsize];
     int total_read = 0;
+    int no_data_count = 0;
+    const int max_retries = 3;  // Try up to 3 times when no data
     
     while (1) {
-        int n = recv_nonblock(sd, buf, bufsize - 1, 5000);  // 5 second timeout
+        int n = recv_nonblock(sd, buf, bufsize - 1, 8000);  // 8 second timeout
         
         if (n == recv_nodata) {
-            // No more data available
-            break;
+            // No more data available - retry a few times before giving up
+            no_data_count++;
+            if (no_data_count >= max_retries || total_read > 0) {
+                // Either tried enough times, or got some data already
+                break;
+            }
+            continue;  // Try again
         } else if (n < 0) {
             // Error
             perror("recv from remote server");
@@ -172,8 +179,12 @@ int read_remote_response_sync(int sd) {
             return -1;  // Signal connection was closed
         }
         
+        // Reset retry counter when we get data
+        no_data_count = 0;
+        
         buf[n] = '\0';
         printf("%s", buf);
+        fflush(stdout);
         total_read += n;
     }
     
@@ -202,7 +213,7 @@ int read_remote_response_async(int sd) {
         char* buf = new char[bufsize];
         
         while (1) {
-            int n = recv_nonblock(sd, buf, bufsize - 1, 5000);
+            int n = recv_nonblock(sd, buf, bufsize - 1, 8000);  // 8 second timeout
             
             if (n == recv_nodata) {
                 // Timeout, continue trying
